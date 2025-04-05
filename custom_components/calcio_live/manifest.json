@@ -1,12 +1,12 @@
 {
-  "domain": "calcio_live",
-  "name": "Calcio Live",
-  "codeowners": ["@Bobsilvio"],
+  "domain": "nba_live",
+  "name": "NBA Live",
+  "codeowners": ["@Tonio5978"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/Bobsilvio/calcio_live",
+  "documentation": "https://github.com/Tonio5978/nba-live",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/Bobsilvio/calcio_live/issues",
+  "issue_tracker": "https://github.com/Tonio5978/nba-live/issues",
   "requirements": ["arrow", "aiofiles", "pytz==2023.3"],
-  "version": "2.2.0"
+  "version": "1.0.0"
 }

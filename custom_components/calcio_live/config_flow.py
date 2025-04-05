@@ -9,10 +9,10 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-OPTION_SELECT_CAMPIONATO = "Campionato"
-OPTION_SELECT_TEAM = "Team"
-OPTION_MANUAL_TEAM = "Inserimento Manuale ID"
-OPTION_ALL_TODAY = "Tutte le partite del giorno"
+OPTION_SELECT_CAMPIONATO = "Championnat"
+OPTION_SELECT_TEAM = "Equipe"
+OPTION_MANUAL_TEAM = "ID de l'équipe"
+OPTION_ALL_TODAY = "Tous les matchs de la journée"
 
 @config_entries.HANDLERS.register(DOMAIN)
 class CalcioLiveConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
