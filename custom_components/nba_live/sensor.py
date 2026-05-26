@@ -74,11 +74,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                 competition_name = competition_name.replace(" ", "_").replace(".", "_").lower()
 
                 sensors += [
-                    #CalcioLiveSensor(
-                    #    hass, f"calciolive_classifica_{competition_name}", competition_code, "standings",
-                    #    base_scan_interval + timedelta(seconds=random.randint(0, 30)), config_entry_id=entry.entry_id,
-                    #    start_date=start_date, end_date=end_date, team_id=team_id
-                    #),
+                    CalcioLiveSensor(
+                        hass, "calciolive_classifica_nba_east", competition_code, "standings",
+                        SCAN_INTERVAL_IDLE, config_entry_id=entry.entry_id,
+                        start_date=start_date, end_date=end_date, team_id=team_id, conference="East"
+                    ),
+                    CalcioLiveSensor(
+                        hass, "calciolive_classifica_nba_west", competition_code, "standings",
+                        SCAN_INTERVAL_IDLE, config_entry_id=entry.entry_id,
+                        start_date=start_date, end_date=end_date, team_id=team_id, conference="West"
+                    ),
                     CalcioLiveSensor(
                         hass, f"calciolive_all_nba", competition_code, "match_day",
                         base_scan_interval + timedelta(seconds=random.randint(0, 30)), config_entry_id=entry.entry_id,
@@ -96,7 +101,7 @@ class CalcioLiveSensor(Entity):
     _cache = {}
 
     def __init__(self, hass, name, code, sensor_type=None, scan_interval=timedelta(seconds=5),
-                 team_name=None, config_entry_id=None, start_date=None, end_date=None, team_id=None):
+                 team_name=None, config_entry_id=None, start_date=None, end_date=None, team_id=None, conference=None):
         self.hass = hass
         self.interval = timedelta(seconds=10)
         self._name = name
@@ -108,6 +113,7 @@ class CalcioLiveSensor(Entity):
         self._attributes = {}
         self._config_entry_id = config_entry_id
         self._team_name = team_name
+        self._conference = conference
         # Usa le date fornite dal config_entry
         self._start_date = start_date  # (start_date o valore di default)
         self._end_date = end_date      # (end_date o valore di default)
@@ -294,7 +300,7 @@ class CalcioLiveSensor(Entity):
         season_start = season_start[:10].replace("-", "")
         season_end = season_end[:10].replace("-", "")
     
-        standings_url = f"{self.base_url}/{self._code}/standings?"
+        standings_url = "https://site.web.api.espn.com/apis/v2/sports/basketball/nba/standings?"
         scoreboard_url = f"{self.base_url_2}/nba/scoreboard?limit=25&dates={start_date}-{end_date}"
         all_matches_today_url = f"{self.base_url_2}/all/scoreboard"
         team_url_schedule_mixed = f"{self.base_url_3}/all/teams/{self._team_id}/schedule?fixture=true"
@@ -338,10 +344,11 @@ class CalcioLiveSensor(Entity):
 
         if self._sensor_type == "standings":
             from .sensori.classifica import classifica_data
-            processed_data = classifica_data(data)
-            self._state = "Classifica"
+            processed_data = classifica_data(data, self._conference)
+            conf_label = self._conference if self._conference else "NBA"
+            self._state = f"NBA Standings {conf_label}"
             self._attributes = processed_data
-            self._has_live_match = False  # Pas de live pour standings
+            self._has_live_match = False
 
         elif self._sensor_type == "match_day":
             match_data = await process_match_data(data, self.hass, start_date=self._start_date.strftime("%Y-%m-%d"), end_date=self._end_date.strftime("%Y-%m-%d"))

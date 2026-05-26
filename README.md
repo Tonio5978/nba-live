@@ -1,178 +1,193 @@
-# Calcio Live - Home Assistant Integration
+# NBA Live - Intégration Home Assistant
 
-## Supportami  
-Se ti piace il mio lavoro e vuoi che continui nello sviluppo delle card, puoi offrirmi un caffè.
-
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 [![PayPal](https://img.shields.io/badge/Donate-PayPal-%2300457C?style=for-the-badge&logo=paypal&logoColor=white)](https://www.paypal.com/donate/?hosted_button_id=Z6KY9V6BBZ4BN)
 
-Non dimenticare di seguirmi sui social:
+## Description
 
-[![TikTok](https://img.shields.io/badge/Follow_TikTok-%23000000?style=for-the-badge&logo=tiktok&logoColor=white)](https://www.tiktok.com/@silviosmartalexa)
+**NBA Live** est une intégration personnalisée pour Home Assistant permettant de suivre en temps réel les matchs NBA. Elle s'appuie sur l'API publique d'ESPN (aucune clé API requise) et crée des capteurs automatiquement mis à jour :
 
-[![Instagram](https://img.shields.io/badge/Follow_Instagram-%23E1306C?style=for-the-badge&logo=instagram&logoColor=white)](https://www.instagram.com/silviosmartalexa)
+- **10 secondes** lorsqu'un match est en cours
+- **10 minutes** lorsqu'aucun match n'est actif
 
-[![YouTube](https://img.shields.io/badge/Subscribe_YouTube-%23FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://www.youtube.com/@silviosmartalexa)
+## Installation via HACS
 
+1. Dans HACS, cliquez sur **"Dépôts personnalisés"** et ajoutez :
+   ```
+   https://github.com/Tonio5978/nba-live
+   ```
+   en choisissant la catégorie **Intégration**.
 
-## Video Guida
+2. Recherchez **"NBA Live"** dans HACS et installez l'intégration.
 
-[Guarda il video su YouTube](https://www.youtube.com/watch?v=K-FAJmwsGXs)
+3. Redémarrez Home Assistant.
 
+4. Allez dans **Paramètres › Appareils et services › Ajouter une intégration** et recherchez `NBA Live`.
 
-## Descrizione
-L'integrazione "Calcio Live" per Home Assistant permette di ottenere informazioni in tempo reale sulle competizioni di calcio, come classifiche, cannonieri e giornate di campionato.
-    
-<img src="images/campionati.png" alt="HACS" width="800"/>
+## Configuration
 
-## Installazione manuale tramite HACS
+L'intégration se configure via l'interface graphique de Home Assistant. Quatre modes sont disponibles :
 
-1. Aggiungi il repository `https://github.com/Bobsilvio/calcio-live` in HACS come INTEGRAZIONE.
-    ![INSTALLAZIONE](images/installazione-git.png)
+| Mode | Description |
+|---|---|
+| **Championnat** | Toutes les rencontres NBA sur une période donnée |
+| **Équipe** | Les matchs d'une équipe spécifique |
+| **Tous les matchs du jour** | L'ensemble des matchs NBA du jour |
+| **ID d'équipe manuel** | Pour saisir directement l'ID ESPN d'une équipe |
 
+Pour les modes **Championnat** et **Équipe**, une étape supplémentaire permet de définir la plage de dates à surveiller (`YYYY-MM-DD`). Les dates sont pré-remplies depuis le calendrier ESPN.
 
+Les dates peuvent être modifiées après installation via **Configurer** sur l'intégration (Options Flow). Un redémarrage de Home Assistant est nécessaire après modification.
 
-2. Cerca "Calcio Live" in HACS e installa l'integrazione.
-    ![HACS](images/hacs.png)
+## Capteurs créés
 
+### Mode Équipe
+Trois capteurs sont créés (ex. pour les Lakers en NBA) :
 
+| Capteur | Contenu |
+|---|---|
+| `sensor.calciolive_next_nba_los_angeles_lakers` | Prochain match ou match en cours |
+| `sensor.calciolive_all_nba_los_angeles_lakers` | Tous les matchs de l'équipe |
+| `sensor.calciolive_all_mixed_los_angeles_lakers` | Matchs toutes compétitions confondues |
 
-4. Vai su Impostazioni > Integrazione > Aggiungi Integrazione e cerca 'Calcio-Live' 
+### Mode Championnat
+```
+sensor.calciolive_all_nba
+```
 
+### Mode Tous les matchs du jour
+```
+sensor.calciolive_all_today
+```
 
+## Attributs des capteurs
 
+Chaque élément de la liste `matches` contient :
 
-5. Configura l'integrazione tramite l'interfaccia di Home Assistant.
+```yaml
+date: "23/05/2026 20:30"
+match_id: "401585390"
+home_team: "Los Angeles Lakers"
+home_logo: "https://..."
+home_score: "112"
+home_linescores: ["28", "30", "27", "27"]   # Score par quart-temps
+home_overall: "52-30"                        # Bilan général
+home_home: "28-13"                           # Bilan à domicile
+home_road: "24-17"                           # Bilan à l'extérieur
+home_leaders:
+  points:
+    player: "LeBron James"
+    value: "28"
+    headshot: "https://..."
+  rebounds:
+    player: "Anthony Davis"
+    value: "14"
+  assists:
+    player: "LeBron James"
+    value: "8"
+home_statistics: { ... }
+away_team: "Boston Celtics"
+away_logo: "https://..."
+away_score: "105"
+away_linescores: ["25", "28", "26", "26"]
+away_overall: "61-21"
+away_home: "32-9"
+away_road: "29-12"
+away_leaders: { ... }
+away_statistics: { ... }
+state: "post"          # pre | in | post
+status: "Final"
+clock: "0:00"
+period: 4
+venue: "Crypto.com Arena"
+match_details:
+  - "Jump Ball - 0:00: LeBron James"
+player_stats:          # Disponible uniquement après le match (state: post)
+  home_players:
+    team_name: "Los Angeles Lakers"
+    players:
+      - name: "LeBron James"
+        position: "SF"
+        jersey: "23"
+        starter: true
+        stats:
+          minutes: "38"
+          pts: "28"
+          reb: "8"
+          ast: "8"
+          fg: "11-19"
+          3pt: "2-6"
+          ft: "4-4"
+          stl: "1"
+          blk: "0"
+          to: "3"
+          plusMinus: "+7"
+  away_players: { ... }
+```
 
+## Exclure les capteurs de l'historique
 
+Pour éviter de surcharger la base de données, ajoutez dans `configuration.yaml` :
 
-
-
-
-### NOTA: !!!! NON DIMENTICARE IL PUNTO 7 - LE CARD VANNO INSTALLATE A PARTE COME PUNTO 1 e 2!!!!
-
-
-
-
-
-6. Scegli il campionato da seguire o della tua squadra, è molto intuitivo i nomi sono assegnati automaticamente e la squadra la devi scegliere in base al campionato, ma non ti preoccupare, se non la trovi puoi inserire in fondo ad ogni campionato un id personale o all'inizio della configurazione.
-Nella versione v2.1.1 è stata introdotta la data, quindi puoi scegliere da che data a che data vedere le partite, puoi selezionare anche tutto il campionato inserendo 1 anno intero.
-
-    <img src="images/integrazione1.png" alt="HACS" width="300"/>
-    <img src="images/integrazione2.png" alt="HACS" width="300"/>
-    <img src="images/integrazione3.png" alt="HACS" width="300"/>
-    <img src="images/integrazione4.png" alt="HACS" width="300"/>
-
-
-   
-
-
-
-
-### 7. Per la card, vai su: https://github.com/Bobsilvio/calcio-live-card e segui le istruzioni
-
-
-### 8. Per evitare di caricare il sistema di registrazioni sui dati delle partite.
-Nel configuration.yaml inserire questo codice:
 ```yaml
 recorder:
   exclude:
     entity_globs:
       - sensor.calciolive_*
-  ```
+```
 
-## Note
-   Puoi seguire più campionati o più squadre
-   
-## Automazioni
-### Notifica 15 minuti prima dell'inizio della partita
-<img src="images/inizio_partita.jpg" alt="iniziopartita" width="300"/>
+## Exemples d'automatisations
 
-Notifica l'inizio della partita 15 minuti prima usando il sensore `sensor.calciolive_next...`.  
-**Nota**: Cambia anche `notify.mobile_app_xxx` con il tuo dispositivo.
+### Notification 15 minutes avant un match
 
 ```yaml
-alias: CalcioLive - Notifica 15 minuti prima della partita Inter
-description: Invia una notifica al cellulare 15 minuti prima dell'inizio della partita.
-trigger:
-  - platform: template
+alias: NBA Live - Notification 15 min avant le match des Lakers
+triggers:
+  - trigger: template
     value_template: >
       {{
-      (as_timestamp(strptime(state_attr('sensor.calciolive_next_ita_1_internazionale',
-      'matches')[0].date, '%d/%m/%Y %H:%M')) - 900) | timestamp_custom('%Y-%m-%d
-      %H:%M') == now().strftime('%Y-%m-%d %H:%M') }}
-condition:
+        (as_timestamp(strptime(
+          state_attr('sensor.calciolive_next_nba_los_angeles_lakers', 'matches')[0].date,
+          '%d/%m/%Y %H:%M'
+        )) - 900) | timestamp_custom('%Y-%m-%d %H:%M') == now().strftime('%Y-%m-%d %H:%M')
+      }}
+conditions:
   - condition: template
     value_template: >
-      {{ state_attr('sensor.calciolive_next_ita_1_internazionale',
-      'matches')[0].state == 'pre' }}
-action:
-  - service: notify.mobile_app_xxx
+      {{ state_attr('sensor.calciolive_next_nba_los_angeles_lakers', 'matches')[0].state == 'pre' }}
+actions:
+  - action: notify.mobile_app_xxx
     data:
-      title: CalcioLive - Promemoria Partita
+      title: "NBA Live - Match dans 15 minutes !"
       message: >
-        La partita tra {{
-        state_attr('sensor.calciolive_next_ita_1_internazionale',
-        'matches')[0].home_team }} e {{
-        state_attr('sensor.calciolive_next_ita_1_internazionale',
-        'matches')[0].away_team }} inizierà tra 15 minuti!
-      data:
-        image: >
-          {{ state_attr('sensor.calciolive_next_ita_1_internazionale', 'team_logo') }}
+        {{ state_attr('sensor.calciolive_next_nba_los_angeles_lakers', 'matches')[0].home_team }}
+        vs
+        {{ state_attr('sensor.calciolive_next_nba_los_angeles_lakers', 'matches')[0].away_team }}
 mode: single
 ```
----
 
-Notifica Goal con dettagli su minuti e giocatore usando il sensore `sensor.calciolive_next...`.  
-**Nota**: Cambia anche `notify.mobile_app_xxx` con il tuo dispositivo.
-
+### Notification de score en temps réel
 
 ```yaml
-alias: CalcioLive - Notifica Goal Internazionale con Minuti e Giocatore
-description: Invia una notifica per ogni gol segnato, inclusi i rigori.
+alias: NBA Live - Score en direct des Lakers
 triggers:
-  - value_template: >
-      {% for event in state_attr('sensor.calciolive_next_ita_1_internazionale',
-      'matches')[0].match_details %}
-        {% if 'Goal' in event or 'Penalty' in event %}
-          true
-        {% endif %}
-      {% endfor %}
-    trigger: template
-conditions: []
+  - trigger: template
+    value_template: >
+      {% set m = state_attr('sensor.calciolive_next_nba_los_angeles_lakers', 'matches') %}
+      {% if m and m | length > 0 %}{{ m[0].state == 'in' }}{% endif %}
 actions:
-  - variables:
-      match_details: >-
-        {{ state_attr('sensor.calciolive_next_ita_1_internazionale',
-        'matches')[0].match_details }}
-  - repeat:
-      for_each: "{{ match_details }}"
-      sequence:
-        - variables:
-            event: "{{ repeat.item }}"
-        - choose:
-            - conditions:
-                - condition: template
-                  value_template: |
-                    {{ 'Goal' in event or 'Penalty' in event }}
-              sequence:
-                - data_template:
-                    title: >
-                      Partita {{
-                      state_attr('sensor.calciolive_next_ita_1_internazionale',
-                      'matches')[0].home_team }} vs {{
-                      state_attr('sensor.calciolive_next_ita_1_internazionale',
-                      'matches')[0].away_team }}
-                    message: >
-                      {% set tipo = 'Rigore segnato da' if 'Penalty' in event
-                      else 'Gol segnato da' %} {% set minuto =
-                      event.split("'")[0].split("-")[-1].strip() %} {% set
-                      giocatore = event.split("': ")[1].strip() %} ⚽ {{ tipo }}
-                      {{ giocatore }} al minuto {{ minuto }}!
-                  action: notify.mobile_app_xxx
-mode: queued
+  - action: notify.mobile_app_xxx
+    data:
+      title: "NBA Live - Score en direct"
+      message: >
+        {% set m = state_attr('sensor.calciolive_next_nba_los_angeles_lakers', 'matches')[0] %}
+        {{ m.home_team }} {{ m.home_score }} - {{ m.away_score }} {{ m.away_team }}
+        (Q{{ m.period }} - {{ m.clock }})
+mode: single
 ```
 
-## Informazioni
-Questa è la mia prima card e sicuramente c'è tanto lavoro da fare, se vi piace, potete ricambiare seguendomi nei social:
+## Notes
 
-TikTok: @silviosmartalexa
+- Vous pouvez créer plusieurs instances de l'intégration pour suivre plusieurs équipes ou ligues simultanément.
+- Le nom des capteurs conserve le préfixe `calciolive_` (héritage de la base du projet).
+- Les statistiques détaillées des joueurs (`player_stats`) ne sont disponibles qu'après la fin du match (`state: post`).

@@ -214,6 +214,7 @@ async def process_match_data(data, hass, team_name=None, next_match_only=False, 
             clock = match.get("status", {}).get("displayClock", "N/A")
             period = match.get("status", {}).get("period", "N/A")
             venue = competitions[0].get("venue", {}).get("fullName", "N/A")
+            series_summary = competitions[0].get("series", {}).get("summary", None)
             match_details = _get_details(competitions[0].get("details", []))
             
             # Récupérer les statistiques détaillées des joueurs si le match est terminé (ASYNC)
@@ -255,6 +256,7 @@ async def process_match_data(data, hass, team_name=None, next_match_only=False, 
                 "clock": clock,
                 "period": period,
                 "venue": venue,
+                "series_summary": series_summary,
                 "match_details": match_details,
                 
                 # Statistiques détaillées des joueurs (uniquement si match terminé)
