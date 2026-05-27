@@ -40,6 +40,10 @@ def classifica_data(data, conference=None):
                 }
                 standings.append(team_data)
 
+            standings.sort(key=lambda t: float(t["win_pct"].lstrip(".") or 0) if t["win_pct"] not in ("N/A", "") else 0, reverse=True)
+            for i, t in enumerate(standings, start=1):
+                t["rank"] = i
+
             standings_list.append({
                 "conference": child.get("name", "Unknown"),
                 "abbreviation": child.get("abbreviation", ""),
