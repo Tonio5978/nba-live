@@ -46,18 +46,18 @@ Trois capteurs sont créés (ex. pour les Lakers en NBA) :
 
 | Capteur | Contenu |
 |---|---|
-| `sensor.calciolive_next_nba_los_angeles_lakers` | Prochain match ou match en cours |
-| `sensor.calciolive_all_nba_los_angeles_lakers` | Tous les matchs de l'équipe |
-| `sensor.calciolive_all_mixed_los_angeles_lakers` | Matchs toutes compétitions confondues |
+| `sensor.nbalive_next_nba_los_angeles_lakers` | Prochain match ou match en cours |
+| `sensor.nbalive_all_nba_los_angeles_lakers` | Tous les matchs de l'équipe |
+| `sensor.nbalive_all_mixed_los_angeles_lakers` | Matchs toutes compétitions confondues |
 
 ### Mode Championnat
 ```
-sensor.calciolive_all_nba
+sensor.nbalive_all_nba
 ```
 
 ### Mode Tous les matchs du jour
 ```
-sensor.calciolive_all_today
+sensor.nbalive_all_today
 ```
 
 ## Attributs des capteurs
@@ -133,7 +133,7 @@ Pour éviter de surcharger la base de données, ajoutez dans `configuration.yaml
 recorder:
   exclude:
     entity_globs:
-      - sensor.calciolive_*
+      - sensor.nbalive_*
 ```
 
 ## Exemples d'automatisations
@@ -147,22 +147,22 @@ triggers:
     value_template: >
       {{
         (as_timestamp(strptime(
-          state_attr('sensor.calciolive_next_nba_los_angeles_lakers', 'matches')[0].date,
+          state_attr('sensor.nbalive_next_nba_los_angeles_lakers', 'matches')[0].date,
           '%d/%m/%Y %H:%M'
         )) - 900) | timestamp_custom('%Y-%m-%d %H:%M') == now().strftime('%Y-%m-%d %H:%M')
       }}
 conditions:
   - condition: template
     value_template: >
-      {{ state_attr('sensor.calciolive_next_nba_los_angeles_lakers', 'matches')[0].state == 'pre' }}
+      {{ state_attr('sensor.nbalive_next_nba_los_angeles_lakers', 'matches')[0].state == 'pre' }}
 actions:
   - action: notify.mobile_app_xxx
     data:
       title: "NBA Live - Match dans 15 minutes !"
       message: >
-        {{ state_attr('sensor.calciolive_next_nba_los_angeles_lakers', 'matches')[0].home_team }}
+        {{ state_attr('sensor.nbalive_next_nba_los_angeles_lakers', 'matches')[0].home_team }}
         vs
-        {{ state_attr('sensor.calciolive_next_nba_los_angeles_lakers', 'matches')[0].away_team }}
+        {{ state_attr('sensor.nbalive_next_nba_los_angeles_lakers', 'matches')[0].away_team }}
 mode: single
 ```
 
@@ -173,14 +173,14 @@ alias: NBA Live - Score en direct des Lakers
 triggers:
   - trigger: template
     value_template: >
-      {% set m = state_attr('sensor.calciolive_next_nba_los_angeles_lakers', 'matches') %}
+      {% set m = state_attr('sensor.nbalive_next_nba_los_angeles_lakers', 'matches') %}
       {% if m and m | length > 0 %}{{ m[0].state == 'in' }}{% endif %}
 actions:
   - action: notify.mobile_app_xxx
     data:
       title: "NBA Live - Score en direct"
       message: >
-        {% set m = state_attr('sensor.calciolive_next_nba_los_angeles_lakers', 'matches')[0] %}
+        {% set m = state_attr('sensor.nbalive_next_nba_los_angeles_lakers', 'matches')[0] %}
         {{ m.home_team }} {{ m.home_score }} - {{ m.away_score }} {{ m.away_team }}
         (Q{{ m.period }} - {{ m.clock }})
 mode: single
@@ -189,5 +189,5 @@ mode: single
 ## Notes
 
 - Vous pouvez créer plusieurs instances de l'intégration pour suivre plusieurs équipes ou ligues simultanément.
-- Le nom des capteurs conserve le préfixe `calciolive_` (héritage de la base du projet).
+- Le nom des capteurs utilise le préfixe `nbalive_`.
 - Les statistiques détaillées des joueurs (`player_stats`) ne sont disponibles qu'après la fin du match (`state: post`).

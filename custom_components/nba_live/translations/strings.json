@@ -30,6 +30,13 @@
                     "name": "Custom Team Name (optional)"
                 }
             },
+            "nba_team": {
+                "title": "Select NBA Team",
+                "description": "Choose the NBA team to follow.\n\nA sensor will be created with the full schedule for the current season.",
+                "data": {
+                    "team_id": "Team"
+                }
+            },
             "dates": {
                 "title": "Configure Dates",
                 "description": "Specify the monitoring period for matches.\n\n- **Start Date**: From when to start monitoring.\n- **End Date**: Until when to monitor.\n\nBoth dates must be in the format **YYYY-MM-DD**.",

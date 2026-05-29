@@ -30,6 +30,13 @@
                     "name": "Nom personnalisé de l'équipe (facultatif)"
                 }
             },
+            "nba_team": {
+                "title": "Sélectionnez une Équipe NBA",
+                "description": "Choisissez l'équipe NBA à suivre.\n\nUn capteur sera créé avec le calendrier complet de la saison en cours.",
+                "data": {
+                    "team_id": "Équipe"
+                }
+            },
             "dates": {
                 "title": "Configurer les Dates",
                 "description": "Spécifiez la période de surveillance des matchs.\n\n- **Date de début** : À partir de quand commencer à surveiller.\n- **Date de fin** : Jusqu'à quand surveiller.\n\nLes deux dates doivent être au format **AAAA-MM-JJ**.",

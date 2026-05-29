@@ -13,6 +13,7 @@ OPTION_SELECT_CAMPIONATO = "Championnat"
 OPTION_SELECT_TEAM = "Equipe"
 OPTION_MANUAL_TEAM = "ID de l'équipe"
 OPTION_ALL_TODAY = "Tous les matchs de la journée"
+OPTION_NBA_TEAM = "Équipe NBA"
 
 @config_entries.HANDLERS.register(DOMAIN)
 class CalcioLiveConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -50,10 +51,14 @@ class CalcioLiveConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._data.update(user_input)
                 return await self.async_step_manual_team()
 
+            elif selection == OPTION_NBA_TEAM:
+                self._data.update(user_input)
+                return await self.async_step_nba_team()
+
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
-                vol.Required("selection", default=OPTION_SELECT_CAMPIONATO): vol.In([OPTION_SELECT_CAMPIONATO, OPTION_SELECT_TEAM, OPTION_ALL_TODAY, OPTION_MANUAL_TEAM]),
+                vol.Required("selection", default=OPTION_SELECT_CAMPIONATO): vol.In([OPTION_SELECT_CAMPIONATO, OPTION_SELECT_TEAM, OPTION_ALL_TODAY, OPTION_MANUAL_TEAM, OPTION_NBA_TEAM]),
             }),
             errors=self._errors,
             description_placeholders={
@@ -216,6 +221,68 @@ class CalcioLiveConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
         )
     
+    async def async_step_nba_team(self, user_input=None):
+        if user_input is not None:
+            team_id = user_input["team_id"]
+            nba_teams = await self._get_nba_teams()
+            team_name = nba_teams.get(team_id, f"Team {team_id}")
+
+            # Compute full current NBA season dates
+            now = datetime.now()
+            if now.month >= 10:
+                season_start = now.replace(month=10, day=1).strftime("%Y-%m-%d")
+                season_end = now.replace(year=now.year + 1, month=6, day=30).strftime("%Y-%m-%d")
+            else:
+                season_start = now.replace(year=now.year - 1, month=10, day=1).strftime("%Y-%m-%d")
+                season_end = now.replace(month=6, day=30).strftime("%Y-%m-%d")
+
+            self._data.update({
+                "team_id": team_id,
+                "team_name": team_name,
+                "competition_code": "nba",
+                "name": f"NBA {team_name}",
+                "start_date": season_start,
+                "end_date": season_end,
+            })
+            return self.async_create_entry(title=f"NBA {team_name}", data=self._data)
+
+        nba_teams = await self._get_nba_teams()
+        sorted_teams = {k: v for k, v in sorted(nba_teams.items(), key=lambda item: item[1])}
+
+        return self.async_show_form(
+            step_id="nba_team",
+            data_schema=vol.Schema({
+                vol.Required("team_id"): vol.In(sorted_teams),
+            }),
+            errors=self._errors,
+            description_placeholders={
+                "description": (
+                    "Sélectionnez l'équipe NBA à suivre.\n"
+                    "Un capteur sera créé avec le calendrier complet de la saison en cours."
+                )
+            }
+        )
+
+    async def _get_nba_teams(self):
+        url = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    response.raise_for_status()
+                    data = await response.json()
+                    teams = (
+                        data.get("sports", [{}])[0]
+                        .get("leagues", [{}])[0]
+                        .get("teams", [])
+                    )
+                    return {
+                        t["team"]["id"]: t["team"]["displayName"]
+                        for t in teams
+                    }
+        except aiohttp.ClientError as e:
+            _LOGGER.error(f"Erreur lors du chargement des équipes NBA : {e}")
+            return {}
+
     async def _get_calendar_data(self):
         """Recupera il calendario delle partite per ottenere le date di inizio e fine"""
         competition_code = self._data.get("competition_code", "N/A")

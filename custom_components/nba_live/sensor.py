@@ -40,23 +40,38 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         
         _LOGGER.debug(f"Calcio Live Config Entry: {entry.data}")  # Log per capire cosa c'è nell'entry
     
-        if team_name:
+        if selection == "Équipe NBA":
+            team_name_normalized = team_name.replace(" ", "_").replace(".", "_").lower()
+            sensors += [
+                CalcioLiveSensor(
+                    hass, f"nbalive_next_{team_name_normalized}", "nba", "nba_team_next_match",
+                    SCAN_INTERVAL_IDLE, team_name=team_name,
+                    config_entry_id=entry.entry_id, start_date=start_date, end_date=end_date, team_id=team_id
+                ),
+                CalcioLiveSensor(
+                    hass, f"nbalive_nba_team_{team_name_normalized}", "nba", "nba_team_schedule",
+                    SCAN_INTERVAL_IDLE, team_name=team_name,
+                    config_entry_id=entry.entry_id, start_date=start_date, end_date=end_date, team_id=team_id
+                ),
+            ]
+
+        elif team_name:
             team_name_normalized = team_name.replace(" ", "_").replace(".", "_").lower()
             competition_name = competition_code.replace(" ", "_").replace(".", "_").lower()
 
             sensors += [
                 CalcioLiveSensor(
-                    hass, f"calciolive_next_{competition_name}_{team_name_normalized}", competition_code, "team_match",
+                    hass, f"nbalive_next_{competition_name}_{team_name_normalized}", competition_code, "team_match",
                     base_scan_interval + timedelta(seconds=random.randint(0, 30)), team_name=team_name,
                     config_entry_id=entry.entry_id, start_date=start_date, end_date=end_date, team_id=team_id
                 ),
                 CalcioLiveSensor(
-                    hass, f"calciolive_all_{competition_name}_{team_name_normalized}", competition_code, "team_matches",
+                    hass, f"nbalive_all_{competition_name}_{team_name_normalized}", competition_code, "team_matches",
                     base_scan_interval + timedelta(seconds=random.randint(0, 30)), team_name=team_name,
                     config_entry_id=entry.entry_id, start_date=start_date, end_date=end_date, team_id=team_id
                 ),
                 CalcioLiveSensor(
-                    hass, f"calciolive_all_mixed_{team_name_normalized}", competition_code, "team_matches_mixed",
+                    hass, f"nbalive_all_mixed_{team_name_normalized}", competition_code, "team_matches_mixed",
                     base_scan_interval + timedelta(seconds=random.randint(0, 30)), team_name=team_name,
                     config_entry_id=entry.entry_id, start_date=start_date, end_date=end_date, team_id=team_id
                 )
@@ -65,7 +80,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             if competition_code == "99999":  # Se il competition_code è fittizio, crea il sensore per tutte le partite
                 sensors += [
                     CalcioLiveSensor(
-                        hass, "calciolive_all_today", competition_code, "all_matches_today",
+                        hass, "nbalive_all_today", competition_code, "all_matches_today",
                         base_scan_interval + timedelta(seconds=random.randint(0, 30)), config_entry_id=entry.entry_id,
                         start_date=start_date, end_date=end_date, team_id=team_id
                     )
@@ -75,17 +90,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
                 sensors += [
                     CalcioLiveSensor(
-                        hass, "calciolive_classifica_nba_east", competition_code, "standings",
+                        hass, "nbalive_classifica_nba_east", competition_code, "standings",
                         SCAN_INTERVAL_IDLE, config_entry_id=entry.entry_id,
                         start_date=start_date, end_date=end_date, team_id=team_id, conference="East"
                     ),
                     CalcioLiveSensor(
-                        hass, "calciolive_classifica_nba_west", competition_code, "standings",
+                        hass, "nbalive_classifica_nba_west", competition_code, "standings",
                         SCAN_INTERVAL_IDLE, config_entry_id=entry.entry_id,
                         start_date=start_date, end_date=end_date, team_id=team_id, conference="West"
                     ),
                     CalcioLiveSensor(
-                        hass, f"calciolive_all_nba", competition_code, "match_day",
+                        hass, f"nbalive_all_nba", competition_code, "match_day",
                         base_scan_interval + timedelta(seconds=random.randint(0, 30)), config_entry_id=entry.entry_id,
                         start_date=start_date, end_date=end_date, team_id=team_id
                     )
@@ -313,6 +328,10 @@ class CalcioLiveSensor(Entity):
             return team_url_schedule_mixed
         elif self._sensor_type == "all_matches_today":
             return all_matches_today_url
+        elif self._sensor_type in ("nba_team_schedule", "nba_team_next_match"):
+            now = datetime.now()
+            season_year = now.year + 1 if now.month >= 10 else now.year
+            return f"{self.base_url_2}/nba/teams/{self._team_id}/schedule?season={season_year}"
 
         return None
     
@@ -349,6 +368,55 @@ class CalcioLiveSensor(Entity):
             self._state = f"NBA Standings {conf_label}"
             self._attributes = processed_data
             self._has_live_match = False
+
+        elif self._sensor_type in ("nba_team_schedule", "nba_team_next_match"):
+            from .sensori.schedule import process_nba_team_schedule
+            from .sensori.scoreboard import is_within_last_48_hours
+            schedule_data = await process_nba_team_schedule(
+                data, self.hass,
+                start_date=self._start_date.strftime("%Y-%m-%d"),
+                end_date=self._end_date.strftime("%Y-%m-%d"),
+            )
+            matches = schedule_data.get("matches", [])
+            self._has_live_match = self._check_for_live_matches(matches)
+
+            if self._sensor_type == "nba_team_next_match":
+                live = [m for m in matches if m.get("state") == "in"]
+                recent = [m for m in matches if m.get("state") == "post" and is_within_last_48_hours(m.get("date", ""))]
+                upcoming = [m for m in matches if m.get("state") == "pre"]
+                next_match = (live or recent or upcoming or matches)[:1]
+
+                self._has_live_match = bool(live)
+                if next_match:
+                    m = next_match[0]
+                    if m.get("state") == "in":
+                        self._state = f"{m['home_score']} - {m['away_score']} ({m['clock']})"
+                    else:
+                        self._state = f"{m.get('home_team', 'N/A')} vs {m.get('away_team', 'N/A')}"
+                else:
+                    self._state = "Aucun match disponible"
+
+                self._attributes = {
+                    "team_name": schedule_data.get("team_name", "N/A"),
+                    "team_logo": schedule_data.get("team_logo", "N/A"),
+                    "matches": next_match,
+                }
+
+            else:
+                live_matches = [m for m in matches if m.get("state") == "in"]
+                if live_matches:
+                    m = live_matches[0]
+                    self._state = f"{m['home_score']} - {m['away_score']} ({m['clock']})"
+                elif matches:
+                    self._state = f"{len(matches)} matchs - {schedule_data.get('team_name', 'N/A')}"
+                else:
+                    self._state = "Aucun match disponible"
+
+                self._attributes = {
+                    "team_name": schedule_data.get("team_name", "N/A"),
+                    "team_logo": schedule_data.get("team_logo", "N/A"),
+                    "matches": matches,
+                }
 
         elif self._sensor_type == "match_day":
             match_data = await process_match_data(data, self.hass, start_date=self._start_date.strftime("%Y-%m-%d"), end_date=self._end_date.strftime("%Y-%m-%d"))
