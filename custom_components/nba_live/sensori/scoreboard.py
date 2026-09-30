@@ -1,7 +1,16 @@
 from .const import _LOGGER
+import aiohttp
 from dateutil import parser
 from zoneinfo import ZoneInfo
 from datetime import datetime, timedelta, timezone
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+# Box scores des matchs terminés, par match_id : un match terminé ne change
+# plus, on ne l'interroge qu'une fois.
+_PLAYER_STATS_CACHE = {}
+_PLAYER_STATS_CACHE_MAX = 100
+# Au-delà, un match terminé est affiché sans stats joueurs (sauf si déjà en cache)
+PLAYER_STATS_MAX_AGE = timedelta(hours=48)
 
 # Helper function to check if team is TBD/unknown
 def _is_team_valid(competitor):
@@ -218,7 +227,7 @@ async def process_match_data(data, hass, team_name=None, next_match_only=False, 
             match_details = _get_details(competitions[0].get("details", []))
             
             # Récupérer les statistiques détaillées des joueurs si le match est terminé (ASYNC)
-            player_stats = await _get_player_stats(hass, match_id, match_state) if match_state == "post" else None
+            player_stats = await _get_player_stats(hass, match_id, match_state, match_date) if match_state == "post" else None
 
             if team_name and (team_name.lower() in home_team.lower() or team_name.lower() in away_team.lower()):
                 team_logo = home_logo if team_name.lower() in home_team.lower() else away_logo
@@ -374,37 +383,42 @@ def _get_leaders(competitor):
     return leaders_data
 
 
-async def _get_player_stats(hass, match_id, match_state):
+async def _get_player_stats(hass, match_id, match_state, match_date=None):
     """
     Récupère les statistiques détaillées de tous les joueurs pour un match terminé
     Via l'API ESPN Summary (ASYNC)
-    
+
     Args:
-        hass: Home Assistant instance (pour utiliser async_add_executor_job)
+        hass: Home Assistant instance (pour la session HTTP partagée)
         match_id (str): ID du match
         match_state (str): État du match ("post" pour terminé)
-    
+        match_date (datetime): Date du match (UTC), pour ignorer les vieux matchs
+
     Returns:
         dict: Statistiques des joueurs par équipe ou None si non disponible
     """
-    
+
     # Ne récupérer que si le match est terminé
     if match_state != "post":
         return None
-    
+
+    if match_id in _PLAYER_STATS_CACHE:
+        return _PLAYER_STATS_CACHE[match_id]
+
+    # Pas de requête pour les matchs anciens (sinon une par match de la saison)
+    if match_date and datetime.now(timezone.utc) - match_date > PLAYER_STATS_MAX_AGE:
+        return None
+
     try:
         # URL de l'API Summary ESPN
         url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event={match_id}"
-        
+
         _LOGGER.debug(f"Fetching player stats for match {match_id} from {url}")
-        
-        # Utiliser aiohttp depuis Home Assistant
-        import aiohttp
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                response.raise_for_status()
-                data = await response.json()
+
+        session = async_get_clientsession(hass)
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+            response.raise_for_status()
+            data = await response.json()
         
         # Extraire les statistiques des box scores
         boxscore = data.get("boxscore", {})
@@ -418,11 +432,18 @@ async def _get_player_stats(hass, match_id, match_state):
         home_stats = _parse_team_player_stats(players[0])
         away_stats = _parse_team_player_stats(players[1])
         
-        return {
+        player_stats = {
             "home_players": home_stats,
             "away_players": away_stats,
             "has_detailed_stats": True
         }
+
+        # Les échecs (None) ne sont pas mis en cache : le box score peut
+        # n'être publié que quelques minutes après la fin du match.
+        if len(_PLAYER_STATS_CACHE) >= _PLAYER_STATS_CACHE_MAX:
+            _PLAYER_STATS_CACHE.pop(next(iter(_PLAYER_STATS_CACHE)))
+        _PLAYER_STATS_CACHE[match_id] = player_stats
+        return player_stats
         
     except aiohttp.ClientError as e:
         _LOGGER.error(f"Error fetching player stats for match {match_id}: {e}")

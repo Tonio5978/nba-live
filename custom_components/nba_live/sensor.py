@@ -11,7 +11,29 @@ from .const import DOMAIN, _LOGGER
 # Intervalles de mise à jour
 SCAN_INTERVAL_LIVE = timedelta(seconds=10)     # Match en cours
 SCAN_INTERVAL_IDLE = timedelta(minutes=10)     # Pas de match en cours
-SCAN_INTERVAL = SCAN_INTERVAL_IDLE  # Par défaut
+# HA appelle async_update à ce rythme ; async_update saute ensuite l'appel
+# tant que l'intervalle effectif (live ou idle) n'est pas écoulé.
+SCAN_INTERVAL = SCAN_INTERVAL_LIVE
+CACHE_TTL = timedelta(seconds=10)
+
+# Attributs volumineux exclus de la base du recorder (limite HA : 16 Ko)
+UNRECORDED_ATTRIBUTES = frozenset({
+    "matches",
+    "standings",
+    "standings_groups",
+    "league_info",
+})
+
+
+def _current_nba_season(now=None):
+    """Retourne (season_year, début, fin) de la saison NBA courante.
+
+    ESPN identifie une saison par l'année de sa fin (2026-27 -> 2027).
+    La bascule vers la nouvelle saison se fait au 1er octobre.
+    """
+    now = now or datetime.now()
+    season_year = now.year + 1 if now.month >= 10 else now.year
+    return season_year, datetime(season_year - 1, 10, 1), datetime(season_year, 6, 30)
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
     try:
@@ -114,6 +136,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
 class CalcioLiveSensor(Entity):
     _cache = {}
+    _unrecorded_attributes = UNRECORDED_ATTRIBUTES
 
     def __init__(self, hass, name, code, sensor_type=None, scan_interval=timedelta(seconds=5),
                  team_name=None, config_entry_id=None, start_date=None, end_date=None, team_id=None, conference=None):
@@ -189,15 +212,9 @@ class CalcioLiveSensor(Entity):
         if not matches_data:
             return False
         
-        for match in matches_data:
-            match_state = match.get("match_state", "").lower()
-            status = match.get("status", "").lower()
-            
-            # Vérifier si le match est en cours
-            if match_state == "in" or "live" in status or "in progress" in status:
-                return True
-        
-        return False
+        # state vaut "pre", "in" ou "post" ; "in" couvre aussi la mi-temps
+        # et les fins de quart-temps (status "Halftime", "End of Period").
+        return any(match.get("state") == "in" for match in matches_data)
 
     @property
     def should_poll(self):
@@ -247,16 +264,18 @@ class CalcioLiveSensor(Entity):
             f"Live match: {self._has_live_match}"
         )
 
-        cache_key = f"{self._sensor_type}_{self._code}_{self._team_name}"
-        if cache_key in CalcioLiveSensor._cache and (datetime.now() - CalcioLiveSensor._cache[cache_key]["time"]).seconds < 10:
-            await self._process_data(CalcioLiveSensor._cache[cache_key]["data"])
-            _LOGGER.info(f"Using cached data for {self._name}")
-            self._last_update_time = now
-            return
-
         url = await self._build_url()
         _LOGGER.debug(f"url asked : {url}")
         if url is None:
+            self._last_update_time = now
+            return
+
+        # Clé = URL : les capteurs interrogeant la même URL partagent la réponse
+        cache_key = url
+        cached = CalcioLiveSensor._cache.get(cache_key)
+        if cached and datetime.now() - cached["time"] < CACHE_TTL:
+            await self._process_data(cached["data"])
+            _LOGGER.info(f"Using cached data for {self._name}")
             self._last_update_time = now
             return
 
@@ -329,8 +348,7 @@ class CalcioLiveSensor(Entity):
         elif self._sensor_type == "all_matches_today":
             return all_matches_today_url
         elif self._sensor_type in ("nba_team_schedule", "nba_team_next_match"):
-            now = datetime.now()
-            season_year = now.year + 1 if now.month >= 10 else now.year
+            season_year, _, _ = _current_nba_season()
             return f"{self.base_url_2}/nba/teams/{self._team_id}/schedule?season={season_year}"
 
         return None
@@ -372,11 +390,11 @@ class CalcioLiveSensor(Entity):
         elif self._sensor_type in ("nba_team_schedule", "nba_team_next_match"):
             from .sensori.schedule import process_nba_team_schedule
             from .sensori.scoreboard import is_within_last_48_hours
-            schedule_data = await process_nba_team_schedule(
-                data, self.hass,
-                start_date=self._start_date.strftime("%Y-%m-%d"),
-                end_date=self._end_date.strftime("%Y-%m-%d"),
-            )
+            # Dates de saison recalculées à chaque mise à jour (celles stockées
+            # dans l'entrée datent de la configuration et deviennent obsolètes).
+            # L'URL étant déjà limitée à la saison, aucun filtre de date n'est appliqué.
+            _, self._start_date, self._end_date = _current_nba_season()
+            schedule_data = await process_nba_team_schedule(data, self.hass)
             matches = schedule_data.get("matches", [])
             self._has_live_match = self._check_for_live_matches(matches)
 
@@ -384,7 +402,8 @@ class CalcioLiveSensor(Entity):
                 live = [m for m in matches if m.get("state") == "in"]
                 recent = [m for m in matches if m.get("state") == "post" and is_within_last_48_hours(m.get("date", ""))]
                 upcoming = [m for m in matches if m.get("state") == "pre"]
-                next_match = (live or recent or upcoming or matches)[:1]
+                # À défaut, le dernier match joué de la saison
+                next_match = (live or recent or upcoming)[:1] or matches[-1:]
 
                 self._has_live_match = bool(live)
                 if next_match:
@@ -431,7 +450,7 @@ class CalcioLiveSensor(Entity):
                 "matches": matches
             }
             
-            _LOGGER.debug(f"{self._name}: Found {len(matches)} matches, {sum(1 for m in matches if m.get('match_state') == 'in')} live")
+            _LOGGER.debug(f"{self._name}: Found {len(matches)} matches, {sum(1 for m in matches if m.get('state') == 'in')} live")
         
         elif self._sensor_type in ["team_matches", "team_match", "team_matches_mixed", "all_matches_today"]:
             async def get_team_match_data(next_match_only=False):
@@ -448,7 +467,7 @@ class CalcioLiveSensor(Entity):
                 self._has_live_match = self._check_for_live_matches(matches)
                 
                 if matches:
-                    live_matches = [m for m in matches if m.get("match_state") == "in"]
+                    live_matches = [m for m in matches if m.get("state") == "in"]
                     if live_matches:
                         self._state = f"{live_matches[0]['home_score']} - {live_matches[0]['away_score']} ({live_matches[0]['clock']})"
                     else:
@@ -473,7 +492,7 @@ class CalcioLiveSensor(Entity):
                 self._has_live_match = self._check_for_live_matches(matches)
                 
                 if matches:
-                    live_matches = [m for m in matches if m.get("match_state") == "in"]
+                    live_matches = [m for m in matches if m.get("state") == "in"]
                     if live_matches:
                         next_match = live_matches[0]
                         self._state = f"{next_match['home_score']} - {next_match['away_score']} ({next_match['clock']})"

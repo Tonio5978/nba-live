@@ -55,7 +55,7 @@ async def process_nba_team_schedule(data, hass, start_date=None, end_date=None):
 
             series_summary = comp.get("series", {}).get("summary", None)
 
-            player_stats = await _get_player_stats(hass, match_id, match_state) if match_state == "post" else None
+            player_stats = await _get_player_stats(hass, match_id, match_state, match_date) if match_state == "post" else None
 
             matches.append({
                 "date": _parse_date(hass, match_date_str),
