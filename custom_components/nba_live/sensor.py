@@ -1,6 +1,7 @@
 import asyncio
 import aiohttp
 from datetime import datetime, timedelta
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity import Entity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -14,7 +15,21 @@ SCAN_INTERVAL_IDLE = timedelta(minutes=10)     # Pas de match en cours
 # HA appelle async_update à ce rythme ; async_update saute ensuite l'appel
 # tant que l'intervalle effectif (live ou idle) n'est pas écoulé.
 SCAN_INTERVAL = SCAN_INTERVAL_LIVE
-CACHE_TTL = timedelta(seconds=10)
+# Tolérance pour ne pas sauter un cycle à quelques millisecondes près
+UPDATE_TOLERANCE = timedelta(seconds=1)
+
+# Durée de vie du cache par URL : courte si la réponse contient un match en
+# cours, sinon plus longue (journée passée, matchs à venir...). Toujours
+# inférieure à l'intervalle correspondant pour ne pas servir une donnée périmée.
+CACHE_TTL_LIVE = timedelta(seconds=5)
+CACHE_TTL_IDLE = timedelta(minutes=5)
+
+NBA_API_URL = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba"
+# Fenêtre du scoreboard, en jours relatifs : J-1 à J+4
+SCOREBOARD_DAYS = range(-1, 5)
+# Types de saison ESPN, dans l'ordre chronologique :
+# présaison, saison régulière, play-in, playoffs
+NBA_SEASON_TYPES = (1, 2, 5, 3)
 
 # Attributs volumineux exclus de la base du recorder (limite HA : 16 Ko)
 UNRECORDED_ATTRIBUTES = frozenset({
@@ -29,11 +44,37 @@ def _current_nba_season(now=None):
     """Retourne (season_year, début, fin) de la saison NBA courante.
 
     ESPN identifie une saison par l'année de sa fin (2026-27 -> 2027).
-    La bascule vers la nouvelle saison se fait au 1er octobre.
+    La bascule se fait au 1er juillet, après les Finales, pour afficher
+    le calendrier de la saison suivante pendant l'intersaison.
     """
     now = now or datetime.now()
-    season_year = now.year + 1 if now.month >= 10 else now.year
-    return season_year, datetime(season_year - 1, 10, 1), datetime(season_year, 6, 30)
+    season_year = now.year + 1 if now.month >= 7 else now.year
+    return season_year, datetime(season_year - 1, 7, 1), datetime(season_year, 6, 30)
+
+
+def _payload_has_live(data):
+    """True si une réponse ESPN (scoreboard ou calendrier) contient un match en cours."""
+    for event in data.get("events", []):
+        # scoreboard : status au niveau de l'event ; calendrier : au niveau de la compétition
+        status = event.get("status") or (event.get("competitions") or [{}])[0].get("status", {})
+        if status.get("type", {}).get("state") == "in":
+            return True
+    return False
+
+
+def _next_calendar_day(data, from_day):
+    """Premier jour de match du calendrier ESPN à partir de from_day, ou None."""
+    leagues = data.get("leagues") or [{}]
+    for entry in leagues[0].get("calendar", []):
+        # Liste de dates pour la NBA ; des objets {startDate: ...} pour d'autres ligues
+        value = entry.get("startDate", "") if isinstance(entry, dict) else entry
+        try:
+            day = datetime.strptime(value[:10], "%Y-%m-%d").date()
+        except (TypeError, ValueError):
+            continue
+        if day >= from_day:
+            return day
+    return None
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
     try:
@@ -249,7 +290,7 @@ class CalcioLiveSensor(Entity):
         # Vérifier si on doit faire une mise à jour
         if self._last_update_time is not None:
             time_since_update = now - self._last_update_time
-            if time_since_update < update_interval:
+            if time_since_update < update_interval - UPDATE_TOLERANCE:
                 _LOGGER.debug(
                     f"Skipping update for {self._name} - "
                     f"Last update: {time_since_update.total_seconds():.0f}s ago, "
@@ -264,92 +305,133 @@ class CalcioLiveSensor(Entity):
             f"Live match: {self._has_live_match}"
         )
 
+        data = await self._fetch_data()
+        if data is not None:
+            await self._process_data(data)
+            _LOGGER.info(f"Finished update for {self._name}")
+
+        # Même en cas d'erreur : on réessaiera au prochain intervalle
+        self._last_update_time = now
+
+    async def _fetch_data(self):
+        """Récupère les données brutes ESPN du capteur, ou None en cas d'erreur."""
+        if self._sensor_type in ("match_day", "team_match", "team_matches"):
+            return await self._fetch_scoreboard()
+        if self._sensor_type in ("nba_team_schedule", "nba_team_next_match"):
+            return await self._fetch_team_schedule()
+
         url = await self._build_url()
         _LOGGER.debug(f"url asked : {url}")
         if url is None:
-            self._last_update_time = now
-            return
+            return None
+        return await self._fetch_json(url)
 
-        # Clé = URL : les capteurs interrogeant la même URL partagent la réponse
-        cache_key = url
-        cached = CalcioLiveSensor._cache.get(cache_key)
-        if cached and datetime.now() - cached["time"] < CACHE_TTL:
-            await self._process_data(cached["data"])
-            _LOGGER.info(f"Using cached data for {self._name}")
-            self._last_update_time = now
-            return
+    async def _fetch_json(self, url):
+        """GET JSON avec cache partagé par URL entre tous les capteurs."""
+        now = datetime.now()
+        cached = CalcioLiveSensor._cache.get(url)
+        if cached and now < cached["expires"]:
+            _LOGGER.debug(f"Using cached data for {url}")
+            return cached["data"]
 
-        retries = 0
-        while retries < 3:
-            try:
-                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
-                    async with session.get(url) as response:
-                        if response.status == 200:
-                            data = await response.json()
-                            _LOGGER.debug(f"Data received for {self._name}: {data}")
-                            CalcioLiveSensor._cache[cache_key] = {"data": data, "time": datetime.now()}
-                            await self._process_data(data)
-                            self._last_update_time = now
-                            _LOGGER.info(f"Finished update for {self._name}")
-                            break
-                        else:
-                            await asyncio.sleep(5)
-                            retries += 1
-            except aiohttp.ClientError as error:
-                await asyncio.sleep(5)
-                retries += 1
-            except asyncio.TimeoutError:
-                await asyncio.sleep(5)
-                retries += 1
-        
-        # Mettre à jour le timestamp même en cas d'erreur
-        if self._last_update_time is None:
-            self._last_update_time = now
+        session = async_get_clientsession(self.hass)
+        try:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                response.raise_for_status()
+                data = await response.json()
+        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+            _LOGGER.warning(f"Erreur lors de la requête {url} : {err}")
+            return None
 
-    
+        # Purge des entrées expirées (les URLs datées changent chaque jour)
+        for key in [k for k, v in CalcioLiveSensor._cache.items() if v["expires"] <= now]:
+            del CalcioLiveSensor._cache[key]
+
+        ttl = CACHE_TTL_LIVE if _payload_has_live(data) else CACHE_TTL_IDLE
+        CalcioLiveSensor._cache[url] = {"data": data, "expires": now + ttl}
+        return data
+
+    async def _fetch_scoreboard_days(self, days):
+        """Un appel par jour : ESPN refuse les plages dates=AAAAMMJJ-AAAAMMJJ (HTTP 400)."""
+        payloads = await asyncio.gather(*(
+            self._fetch_json(f"{NBA_API_URL}/scoreboard?dates={day:%Y%m%d}")
+            for day in days
+        ))
+        if any(payload is None for payload in payloads):
+            return None
+        return payloads
+
+    async def _fetch_scoreboard(self):
+        """Matchs de J-1 à J+4.
+
+        Si la fenêtre est vide (intersaison, trêve), on affiche à la place les
+        5 jours à partir du prochain jour de match du calendrier ESPN.
+        """
+        today = datetime.now().date()
+        days = [today + timedelta(days=offset) for offset in SCOREBOARD_DAYS]
+        payloads = await self._fetch_scoreboard_days(days)
+        if payloads is None:
+            return None
+
+        events = [event for payload in payloads for event in payload.get("events", [])]
+        if not events:
+            next_day = _next_calendar_day(payloads[0], today)
+            if next_day is None:
+                # En juillet-août, le calendrier d'une date est celui de la saison
+                # terminée ; le scoreboard par défaut pointe sur la saison à venir.
+                default = await self._fetch_json(f"{NBA_API_URL}/scoreboard")
+                next_day = _next_calendar_day(default, today) if default else None
+            if next_day is not None:
+                days = [next_day + timedelta(days=offset) for offset in range(len(SCOREBOARD_DAYS))]
+                payloads = await self._fetch_scoreboard_days(days)
+                if payloads is None:
+                    return None
+                events = [event for payload in payloads for event in payload.get("events", [])]
+
+        self._start_date = datetime.combine(days[0], datetime.min.time())
+        self._end_date = datetime.combine(days[-1], datetime.min.time())
+        return {"leagues": payloads[0].get("leagues", []), "events": events}
+
+    async def _fetch_team_schedule(self):
+        """Calendrier complet de la saison (tous types de saison confondus).
+
+        Sans seasontype, ESPN ne renvoie que le type en cours (ex. la seule
+        présaison en octobre), d'où un appel par type.
+        """
+        season_year, _, _ = _current_nba_season()
+        payloads = await asyncio.gather(*(
+            self._fetch_json(
+                f"{NBA_API_URL}/teams/{self._team_id}/schedule?season={season_year}&seasontype={season_type}"
+            )
+            for season_type in NBA_SEASON_TYPES
+        ))
+        if any(payload is None for payload in payloads):
+            return None
+
+        events = {}
+        for payload in payloads:
+            for event in payload.get("events", []):
+                events[event.get("id")] = event
+        team = next((p["team"] for p in payloads if p.get("team")), {})
+        return {
+            "team": team,
+            "events": sorted(events.values(), key=lambda event: event.get("date", "")),
+        }
+
     async def _build_url(self):
-        base_url    = "https://site.web.api.espn.com/apis/v2/sports/soccer"
-        base_url_2  = "https://site.api.espn.com/apis/site/v2/sports/basketball"  #"https://site.api.espn.com/apis/site/v2/sports/soccer"
+        base_url_2  = "https://site.api.espn.com/apis/site/v2/sports/basketball"
         base_url_3  = "https://site.web.api.espn.com/apis/site/v2/sports/soccer"
-        season_data = ""
-        season_start = ""
-        season_end = ""
-    
-      #  if self._code:
-      #      season_start, season_end = await self._get_calendar_data()
 
-        # Se le date non sono state recuperate, utilizza quelle di default
-        if not season_start or not season_end:
-            season_start = self._start_date.strftime("%Y-%m-%d")
-            season_end = self._end_date.strftime("%Y-%m-%d")
-    
-        start_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-        start_date = start_date[:10].replace("-", "")
-        _LOGGER.debug(f"start date asked : {start_date}")
-
-        end_date = (datetime.now() + timedelta(days=4)).strftime("%Y-%m-%d")
-        end_date = end_date[:10].replace("-", "")
-        _LOGGER.debug(f"end date asked : {end_date}")
-
-        season_start = season_start[:10].replace("-", "")
-        season_end = season_end[:10].replace("-", "")
-    
         standings_url = "https://site.web.api.espn.com/apis/v2/sports/basketball/nba/standings?"
-        scoreboard_url = f"{self.base_url_2}/nba/scoreboard?limit=25&dates={start_date}-{end_date}"
-        all_matches_today_url = f"{self.base_url_2}/all/scoreboard"
-        team_url_schedule_mixed = f"{self.base_url_3}/all/teams/{self._team_id}/schedule?fixture=true"
-    
+        all_matches_today_url = f"{base_url_2}/all/scoreboard"
+        team_url_schedule_mixed = f"{base_url_3}/all/teams/{self._team_id}/schedule?fixture=true"
+
         if self._sensor_type == "standings":
             return standings_url
-        elif self._sensor_type in ("match_day", "team_match", "team_matches"):
-            return scoreboard_url
         elif self._sensor_type == "team_matches_mixed" and self._team_name:
             return team_url_schedule_mixed
         elif self._sensor_type == "all_matches_today":
             return all_matches_today_url
-        elif self._sensor_type in ("nba_team_schedule", "nba_team_next_match"):
-            season_year, _, _ = _current_nba_season()
-            return f"{self.base_url_2}/nba/teams/{self._team_id}/schedule?season={season_year}"
 
         return None
     
@@ -438,7 +520,8 @@ class CalcioLiveSensor(Entity):
                 }
 
         elif self._sensor_type == "match_day":
-            match_data = await process_match_data(data, self.hass, start_date=self._start_date.strftime("%Y-%m-%d"), end_date=self._end_date.strftime("%Y-%m-%d"))
+            # La fenêtre J-1 à J+4 est déjà appliquée par _fetch_scoreboard
+            match_data = await process_match_data(data, self.hass)
             matches = match_data.get("matches", [])
             
             # Détecter si un match est live
@@ -453,10 +536,14 @@ class CalcioLiveSensor(Entity):
             _LOGGER.debug(f"{self._name}: Found {len(matches)} matches, {sum(1 for m in matches if m.get('state') == 'in')} live")
         
         elif self._sensor_type in ["team_matches", "team_match", "team_matches_mixed", "all_matches_today"]:
+            # Capteurs scoreboard : fenêtre déjà appliquée par _fetch_scoreboard
+            filter_dates = self._sensor_type not in ("team_match", "team_matches")
+
             async def get_team_match_data(next_match_only=False):
                 return await process_match_data(
                     data, self.hass, team_name=self._team_name, next_match_only=next_match_only,
-                    start_date=self._start_date.strftime("%Y-%m-%d"), end_date=self._end_date.strftime("%Y-%m-%d")
+                    start_date=self._start_date.strftime("%Y-%m-%d") if filter_dates else None,
+                    end_date=self._end_date.strftime("%Y-%m-%d") if filter_dates else None,
                 )
 
             if self._sensor_type in ["team_matches", "team_matches_mixed", "all_matches_today"]:
