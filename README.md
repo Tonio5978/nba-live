@@ -26,39 +26,44 @@
 
 ## Configuration
 
-L'intégration se configure via l'interface graphique de Home Assistant. Quatre modes sont disponibles :
+L'intégration se configure via l'interface graphique de Home Assistant. Deux choix sont proposés :
 
 | Mode | Description |
 |---|---|
-| **Championnat** | Toutes les rencontres NBA sur une période donnée |
-| **Équipe** | Les matchs d'une équipe spécifique |
-| **Tous les matchs du jour** | L'ensemble des matchs NBA du jour |
-| **ID d'équipe manuel** | Pour saisir directement l'ID ESPN d'une équipe |
+| **Une équipe NBA** | Le prochain match et le calendrier complet de la saison d'une équipe |
+| **La ligue NBA** | Les classements des deux conférences et les matchs de la semaine |
 
-Pour les modes **Championnat** et **Équipe**, une étape supplémentaire permet de définir la plage de dates à surveiller (`YYYY-MM-DD`). Les dates sont pré-remplies depuis le calendrier ESPN.
-
-Les dates peuvent être modifiées après installation via **Configurer** sur l'intégration (Options Flow). Un redémarrage de Home Assistant est nécessaire après modification.
+Ajoutez l'intégration plusieurs fois pour suivre plusieurs équipes (une seule entrée par équipe). Aucune date n'est à saisir : la saison en cours est déterminée automatiquement.
 
 ## Capteurs créés
 
+Chaque entrée crée un appareil (l'équipe, ou « NBA ») regroupant ses capteurs.
+
 ### Mode Équipe
-Trois capteurs sont créés (ex. pour les Lakers en NBA) :
+Exemple pour les Lakers :
 
 | Capteur | Contenu |
 |---|---|
-| `sensor.nbalive_next_nba_los_angeles_lakers` | Prochain match ou match en cours |
-| `sensor.nbalive_all_nba_los_angeles_lakers` | Tous les matchs de l'équipe |
-| `sensor.nbalive_all_mixed_los_angeles_lakers` | Matchs toutes compétitions confondues |
+| `sensor.nbalive_next_los_angeles_lakers` | Prochain match, match en cours ou match terminé depuis moins de 48 h |
+| `sensor.nbalive_nba_team_los_angeles_lakers` | Calendrier complet de la saison (présaison, saison régulière, play-in, playoffs) |
 
-### Mode Championnat
-```
-sensor.nbalive_all_nba
-```
+La saison suivante est prise en compte à partir du 1er juillet.
 
-### Mode Tous les matchs du jour
-```
-sensor.nbalive_all_today
-```
+### Mode Ligue
+
+| Capteur | Contenu |
+|---|---|
+| `sensor.nbalive_classifica_nba_east` | Classement de la Conférence Est |
+| `sensor.nbalive_classifica_nba_west` | Classement de la Conférence Ouest |
+| `sensor.nbalive_all_nba` | Matchs de J-1 à J+4 ; hors saison, les 5 premiers jours de matchs à venir |
+
+### Mise à jour depuis une version précédente
+
+Les entrées existantes sont migrées automatiquement et gardent leurs `entity_id`. Les modes supprimés sont convertis :
+- **Championnat** et **Tous les matchs du jour** deviennent le mode **Ligue** ;
+- **Équipe NBA**, **ID d'équipe manuel** et **Équipe** (championnat `nba`) deviennent le mode **Équipe** ;
+- le capteur `nbalive_all_mixed_*` est supprimé ;
+- une équipe de football ne peut pas être convertie : supprimez l'entrée concernée.
 
 ## Attributs des capteurs
 
@@ -127,7 +132,7 @@ player_stats:          # Disponible uniquement après le match (state: post)
 
 ## Exclure les capteurs de l'historique
 
-Pour éviter de surcharger la base de données, ajoutez dans `configuration.yaml` :
+Les attributs volumineux (`matches`, `standings`, `league_info`) ne sont déjà pas enregistrés dans l'historique. Pour exclure entièrement les capteurs, ajoutez dans `configuration.yaml` :
 
 ```yaml
 recorder:
@@ -147,22 +152,22 @@ triggers:
     value_template: >
       {{
         (as_timestamp(strptime(
-          state_attr('sensor.nbalive_next_nba_los_angeles_lakers', 'matches')[0].date,
+          state_attr('sensor.nbalive_next_los_angeles_lakers', 'matches')[0].date,
           '%d/%m/%Y %H:%M'
         )) - 900) | timestamp_custom('%Y-%m-%d %H:%M') == now().strftime('%Y-%m-%d %H:%M')
       }}
 conditions:
   - condition: template
     value_template: >
-      {{ state_attr('sensor.nbalive_next_nba_los_angeles_lakers', 'matches')[0].state == 'pre' }}
+      {{ state_attr('sensor.nbalive_next_los_angeles_lakers', 'matches')[0].state == 'pre' }}
 actions:
   - action: notify.mobile_app_xxx
     data:
       title: "NBA Live - Match dans 15 minutes !"
       message: >
-        {{ state_attr('sensor.nbalive_next_nba_los_angeles_lakers', 'matches')[0].home_team }}
+        {{ state_attr('sensor.nbalive_next_los_angeles_lakers', 'matches')[0].home_team }}
         vs
-        {{ state_attr('sensor.nbalive_next_nba_los_angeles_lakers', 'matches')[0].away_team }}
+        {{ state_attr('sensor.nbalive_next_los_angeles_lakers', 'matches')[0].away_team }}
 mode: single
 ```
 
@@ -173,14 +178,14 @@ alias: NBA Live - Score en direct des Lakers
 triggers:
   - trigger: template
     value_template: >
-      {% set m = state_attr('sensor.nbalive_next_nba_los_angeles_lakers', 'matches') %}
+      {% set m = state_attr('sensor.nbalive_next_los_angeles_lakers', 'matches') %}
       {% if m and m | length > 0 %}{{ m[0].state == 'in' }}{% endif %}
 actions:
   - action: notify.mobile_app_xxx
     data:
       title: "NBA Live - Score en direct"
       message: >
-        {% set m = state_attr('sensor.nbalive_next_nba_los_angeles_lakers', 'matches')[0] %}
+        {% set m = state_attr('sensor.nbalive_next_los_angeles_lakers', 'matches')[0] %}
         {{ m.home_team }} {{ m.home_score }} - {{ m.away_score }} {{ m.away_team }}
         (Q{{ m.period }} - {{ m.clock }})
 mode: single

@@ -2,48 +2,42 @@
     "config": {
         "step": {
             "user": {
-                "title": "Configuration de Calcio Live",
-                "description": "Bienvenue dans l'assistant de configuration de Calcio Live.\n\nChoisissez parmi les options suivantes pour créer un capteur :\n\n- **Championnat** : Suivre tous les matchs d'un championnat spécifique.\n- **Équipe** : Suivre les matchs d'une équipe spécifique.\n- **Saisie manuelle** : Si vous connaissez l'ID de l'équipe, vous pouvez le configurer manuellement.",
-                "data": {
-                    "selection": "Sélectionnez et cliquez sur envoyer"
-                }
-            },
-            "campionato": {
-                "title": "Sélectionnez un Championnat",
-                "description": "Choisissez le championnat que vous souhaitez surveiller.\n\nCela affichera tous les matchs des équipes dans le championnat sélectionné.",
-                "data": {
-                    "competition_code": "Code du championnat"
-                }
-            },
-            "team": {
-                "title": "Sélectionnez une Équipe",
-                "description": "Choisissez l'équipe que vous souhaitez suivre.\n\nCela affichera uniquement les matchs de l'équipe sélectionnée.",
-                "data": {
-                    "team_id": "ID de l'équipe"
-                }
-            },
-            "manual_team": {
-                "title": "Saisie Manuelle",
-                "description": "Saisissez manuellement l'ID de l'équipe que vous souhaitez suivre.\n\nVous pouvez également fournir un nom personnalisé pour une identification plus facile.",
-                "data": {
-                    "manual_team_id": "ID de l'équipe (manuelle)",
-                    "name": "Nom personnalisé de l'équipe (facultatif)"
+                "title": "NBA Live",
+                "description": "Que voulez-vous suivre ?",
+                "menu_options": {
+                    "nba_team": "Une équipe NBA",
+                    "nba_league": "La ligue NBA (classements et matchs de la semaine)"
                 }
             },
             "nba_team": {
-                "title": "Sélectionnez une Équipe NBA",
-                "description": "Choisissez l'équipe NBA à suivre.\n\nUn capteur sera créé avec le calendrier complet de la saison en cours.",
+                "title": "Sélectionnez une équipe NBA",
+                "description": "Un appareil est créé avec le prochain match de l'équipe et son calendrier complet de la saison.",
                 "data": {
                     "team_id": "Équipe"
                 }
+            }
+        },
+        "abort": {
+            "already_configured": "Cette équipe ou la ligue est déjà configurée.",
+            "cannot_connect": "Impossible de joindre l'API ESPN. Réessayez plus tard."
+        }
+    },
+    "entity": {
+        "sensor": {
+            "next_match": {
+                "name": "Prochain match"
             },
-            "dates": {
-                "title": "Configurer les Dates",
-                "description": "Spécifiez la période de surveillance des matchs.\n\n- **Date de début** : À partir de quand commencer à surveiller.\n- **Date de fin** : Jusqu'à quand surveiller.\n\nLes deux dates doivent être au format **AAAA-MM-JJ**.",
-                "data": {
-                    "start_date": "Date de début (AAAA-MM-JJ)",
-                    "end_date": "Date de fin (AAAA-MM-JJ)"
-                }
+            "schedule": {
+                "name": "Calendrier"
+            },
+            "standings_east": {
+                "name": "Classement Conférence Est"
+            },
+            "standings_west": {
+                "name": "Classement Conférence Ouest"
+            },
+            "matches": {
+                "name": "Matchs de la semaine"
             }
         }
     }

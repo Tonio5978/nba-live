@@ -1,0 +1,44 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "NBA Live",
+                "description": "What do you want to follow?",
+                "menu_options": {
+                    "nba_team": "An NBA team",
+                    "nba_league": "The NBA league (standings and matches of the week)"
+                }
+            },
+            "nba_team": {
+                "title": "Select an NBA team",
+                "description": "A device is created with the team's next match and its full season schedule.",
+                "data": {
+                    "team_id": "Team"
+                }
+            }
+        },
+        "abort": {
+            "already_configured": "This team or league is already configured.",
+            "cannot_connect": "Unable to reach the ESPN API. Try again later."
+        }
+    },
+    "entity": {
+        "sensor": {
+            "next_match": {
+                "name": "Next match"
+            },
+            "schedule": {
+                "name": "Schedule"
+            },
+            "standings_east": {
+                "name": "Eastern Conference standings"
+            },
+            "standings_west": {
+                "name": "Western Conference standings"
+            },
+            "matches": {
+                "name": "Matches of the week"
+            }
+        }
+    }
+}

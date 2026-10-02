@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **Home Assistant custom integration** (HACS-distributed) that tracks live NBA match data by polling ESPN's public APIs. It was forked from an Italian soccer integration ("Calcio Live"), so Italian variable names, comments, and class names (e.g., `CalcioLiveSensor`) still appear throughout the code.
+This is a **Home Assistant custom integration** (HACS-distributed) that tracks live NBA match data by polling ESPN's public APIs. It was forked from an Italian soccer integration ("Calcio Live"), so Italian variable names, comments, and module names (e.g., `sensori/classifica.py`) still appear throughout the code.
 
 ## Development Setup
 
@@ -37,26 +37,24 @@ HA Config UI → config_flow.py → ConfigEntry
                               sensori/scoreboard.py (data processing)
                               sensori/classifica.py (standings)
                                                      ↓
-                                       CalcioLiveSensor state + attributes
+                                       NbaLiveSensor state + attributes
 ```
 
 ### Key Files
 
-- [custom_components/nba_live/sensor.py](custom_components/nba_live/sensor.py) — Main sensor class (`CalcioLiveSensor`). Handles polling, caching (10s TTL), and adaptive scan intervals (10s live, 10min idle).
+- [custom_components/nba_live/sensor.py](custom_components/nba_live/sensor.py) — Main sensor class (`NbaLiveSensor`). Handles polling, a per-URL cache shared by all sensors, and adaptive scan intervals (10s live, 10min idle).
 - [custom_components/nba_live/config_flow.py](custom_components/nba_live/config_flow.py) — Multi-step UI config wizard. Dynamically fetches leagues and teams from ESPN at config time.
 - [custom_components/nba_live/sensori/scoreboard.py](custom_components/nba_live/sensori/scoreboard.py) — Core data-processing engine. Transforms ESPN JSON into sensor attributes (scores, linescores, leaders, player stats, match events).
 - [custom_components/nba_live/sensori/classifica.py](custom_components/nba_live/sensori/classifica.py) — Standings/classification data processing.
 - [custom_components/nba_live/manifest.json](custom_components/nba_live/manifest.json) — HA integration metadata (domain: `nba_live`, min HA: 2024.8.0).
 
-### Sensor Types
+### Entry and Sensor Types
 
-Configured via `sensor_type` in the config entry:
-- `match_day` — All matches in a date range
-- `team_match` — Next upcoming match for a team
-- `team_matches` — All matches for a team
-- `team_matches_mixed` — Cross-league matches
-- `standings` — League standings
-- `all_matches_today` — All matches across all sports today
+The config flow (menu, `VERSION = 2`) creates one of two entry types (`entry_type` in the entry data):
+- `nba_team` (unique_id `team_<id>`) — sensors `next_match` and `schedule` (full season, all season types)
+- `nba_league` (unique_id `nba_league`) — sensors `standings_east`, `standings_west` and `matches` (J-1 to J+4)
+
+Sensor unique_ids are `<entry_id>_<key>`; `key` is also the entity `translation_key`. Entity ids keep the historical `nbalive_` prefix. `async_migrate_entry` in `__init__.py` converts version 1 entries (old Calcio Live modes) and their registry entities, keeping entity ids.
 
 ### ESPN API Endpoints
 
@@ -75,7 +73,7 @@ A ±30-second random jitter is applied to distribute API load.
 
 ### Translations
 
-Localization strings live in `custom_components/nba_live/translations/`. Available: `en` (strings.json), `it`, `fr`, `es`, `de`. Config flow step IDs that need translations: `user`, `campionato`, `team`, `manual_team`, `dates`.
+Localization strings live in `custom_components/nba_live/translations/`. Available: `en`, `it`, `fr`, `es`, `de` (no `strings.json`: custom integrations load `translations/<lang>.json` directly). Keys: config steps `user` (menu) and `nba_team`, aborts `already_configured`/`cannot_connect`, and `entity.sensor.<key>.name`.
 
 ## CI/CD
 

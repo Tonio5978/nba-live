@@ -2,41 +2,42 @@
     "config": {
         "step": {
             "user": {
-                "title": "Configuración de Calcio Live",
-                "description": "Bienvenido al asistente de configuración de Calcio Live.\n\nSelecciona una de las siguientes opciones para crear un sensor:\n\n- **Liga**: Sigue todos los partidos de una liga específica.\n- **Equipo**: Sigue los partidos de un equipo específico.\n- **Ingreso manual**: Si conoces el ID del equipo, puedes configurarlo manualmente.",
-                "data": {
-                    "selection": "Selecciona y haz clic en enviar"
+                "title": "NBA Live",
+                "description": "¿Qué quieres seguir?",
+                "menu_options": {
+                    "nba_team": "Un equipo de la NBA",
+                    "nba_league": "La liga NBA (clasificaciones y partidos de la semana)"
                 }
             },
-            "campionato": {
-                "title": "Seleccionar una Liga",
-                "description": "Elige la liga que deseas monitorear.\n\nEsto mostrará todos los partidos de los equipos en la liga seleccionada.",
+            "nba_team": {
+                "title": "Selecciona un equipo de la NBA",
+                "description": "Se crea un dispositivo con el próximo partido del equipo y su calendario completo de la temporada.",
                 "data": {
-                    "competition_code": "Código de la liga"
+                    "team_id": "Equipo"
                 }
+            }
+        },
+        "abort": {
+            "already_configured": "Este equipo o la liga ya está configurado.",
+            "cannot_connect": "No se puede conectar con la API de ESPN. Inténtalo más tarde."
+        }
+    },
+    "entity": {
+        "sensor": {
+            "next_match": {
+                "name": "Próximo partido"
             },
-            "team": {
-                "title": "Seleccionar un Equipo",
-                "description": "Elige el equipo que deseas seguir.\n\nEsto mostrará solo los partidos del equipo seleccionado.",
-                "data": {
-                    "team_id": "ID del equipo"
-                }
+            "schedule": {
+                "name": "Calendario"
             },
-            "manual_team": {
-                "title": "Ingreso Manual",
-                "description": "Introduce manualmente el ID del equipo que deseas seguir.\n\nTambién puedes proporcionar un nombre personalizado para facilitar la identificación.",
-                "data": {
-                    "manual_team_id": "ID del equipo (manual)",
-                    "name": "Nombre personalizado del equipo (opcional)"
-                }
+            "standings_east": {
+                "name": "Clasificación Conferencia Este"
             },
-            "dates": {
-                "title": "Configurar Fechas",
-                "description": "Especifica el período de monitoreo de los partidos.\n\n- **Fecha de inicio**: Desde cuándo comenzar a monitorear.\n- **Fecha de fin**: Hasta cuándo monitorear.\n\nAmbas fechas deben estar en el formato **AAAA-MM-DD**.",
-                "data": {
-                    "start_date": "Fecha de inicio (AAAA-MM-DD)",
-                    "end_date": "Fecha de fin (AAAA-MM-DD)"
-                }
+            "standings_west": {
+                "name": "Clasificación Conferencia Oeste"
+            },
+            "matches": {
+                "name": "Partidos de la semana"
             }
         }
     }
