@@ -4,7 +4,6 @@ from homeassistant.core import callback
 import logging
 import aiohttp
 from datetime import datetime, timedelta
-from dateutil.relativedelta import relativedelta
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -364,10 +363,10 @@ class CalcioLiveOptionsFlow(config_entries.OptionsFlow):
         today = datetime.now()
 
         start_date = self._config_entry.options.get(
-            "start_date", self._config_entry.data.get("start_date", (today - relativedelta(months=3)).strftime("%Y-%m-%d"))
+            "start_date", self._config_entry.data.get("start_date", (today - timedelta(days=90)).strftime("%Y-%m-%d"))
         )
         end_date = self._config_entry.options.get(
-            "end_date", self._config_entry.data.get("end_date", (today + relativedelta(months=4)).strftime("%Y-%m-%d"))
+            "end_date", self._config_entry.data.get("end_date", (today + timedelta(days=120)).strftime("%Y-%m-%d"))
         )
         
 

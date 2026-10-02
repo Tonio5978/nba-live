@@ -1,9 +1,8 @@
 from .const import _LOGGER
 import aiohttp
-from dateutil import parser
-from zoneinfo import ZoneInfo
 from datetime import datetime, timedelta, timezone
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.util import dt as dt_util
 
 # Box scores des matchs terminés, par match_id : un match terminé ne change
 # plus, on ne l'interroge qu'une fois.
@@ -40,6 +39,24 @@ def _is_team_valid(competitor):
         return False
     
     return True
+
+
+def _parse_iso_utc(date_str):
+    """Date ISO 8601 ESPN (ex. "2026-10-06T02:00Z") -> datetime UTC.
+
+    Lève ValueError si la date est illisible.
+    """
+    parsed = dt_util.parse_datetime(date_str)
+    if parsed is None:
+        raise ValueError(f"Date invalide : {date_str}")
+    return dt_util.as_utc(parsed)
+
+
+def _split_home_away(competitors):
+    """Retourne (domicile, extérieur) d'après le champ homeAway, sinon selon l'ordre."""
+    home = next((c for c in competitors if c.get("homeAway") == "home"), competitors[0])
+    away = next((c for c in competitors if c.get("homeAway") == "away"), competitors[1])
+    return home, away
 
 
 def _get_safe_team_data(competitor, default_name="TBD"):
@@ -159,7 +176,7 @@ async def process_match_data(data, hass, team_name=None, next_match_only=False, 
             match_date_str = match.get("date", "")
             match_id = match.get("id", "")
             try:
-                match_date = parser.isoparse(match_date_str).astimezone(timezone.utc) if match_date_str else None
+                match_date = _parse_iso_utc(match_date_str) if match_date_str else None
             except ValueError:
                 _LOGGER.error(f"Errore nel parsing della data della partita: {match_date_str}")
                 continue
@@ -186,33 +203,36 @@ async def process_match_data(data, hass, team_name=None, next_match_only=False, 
                 _LOGGER.warning(f"Match {match_id}: {len(competitors)} competitors (attendu: 2), skipping")
                 continue
             
+            # Domicile / extérieur d'après homeAway (l'ordre de la liste n'est pas garanti)
+            home_comp, away_comp = _split_home_away(competitors)
+
             # Récupération sécurisée des données HOME team
-            home_data = _get_safe_team_data(competitors[0], "TBD Home")
+            home_data = _get_safe_team_data(home_comp, "TBD Home")
             home_team = home_data["team_name"]
             home_logo = home_data["logo"]
             home_form = home_data["form"]
             home_score = home_data["score"]
-            home_linescores = _get_linescores(competitors[0]) if _is_team_valid(competitors[0]) else []
-            home_statistics = _get_statistics(competitors[0]) if _is_team_valid(competitors[0]) else {}
-            home_leaders = _get_leaders(competitors[0]) if _is_team_valid(competitors[0]) else {}
+            home_linescores = _get_linescores(home_comp) if _is_team_valid(home_comp) else []
+            home_statistics = _get_statistics(home_comp) if _is_team_valid(home_comp) else {}
+            home_leaders = _get_leaders(home_comp) if _is_team_valid(home_comp) else {}
             home_overall = home_data["records"]["overall"]
             home_home = home_data["records"]["home"]
             home_road = home_data["records"]["road"]
-            
+
             # Récupération sécurisée des données AWAY team
-            away_data = _get_safe_team_data(competitors[1], "TBD Away")
+            away_data = _get_safe_team_data(away_comp, "TBD Away")
             away_team = away_data["team_name"]
-            
+
             # Log si équipes TBD détectées
-            if not _is_team_valid(competitors[0]) or not _is_team_valid(competitors[1]):
+            if not _is_team_valid(home_comp) or not _is_team_valid(away_comp):
                 _LOGGER.info(f"Match {match_id}: {away_team} @ {home_team} - Équipe(s) TBD/non déterminée(s)")
 
             away_logo = away_data["logo"]
             away_form = away_data["form"]
             away_score = away_data["score"]
-            away_linescores = _get_linescores(competitors[1]) if _is_team_valid(competitors[1]) else []
-            away_statistics = _get_statistics(competitors[1]) if _is_team_valid(competitors[1]) else {}
-            away_leaders = _get_leaders(competitors[1]) if _is_team_valid(competitors[1]) else {}
+            away_linescores = _get_linescores(away_comp) if _is_team_valid(away_comp) else []
+            away_statistics = _get_statistics(away_comp) if _is_team_valid(away_comp) else {}
+            away_leaders = _get_leaders(away_comp) if _is_team_valid(away_comp) else {}
             away_overall = away_data["records"]["overall"]
             away_home = away_data["records"]["home"]
             away_road = away_data["records"]["road"]
@@ -428,9 +448,22 @@ async def _get_player_stats(hass, match_id, match_state, match_date=None):
             _LOGGER.warning(f"No player stats found for match {match_id}")
             return None
         
-        # Structure: players[0] = équipe 1, players[1] = équipe 2
-        home_stats = _parse_team_player_stats(players[0])
-        away_stats = _parse_team_player_stats(players[1])
+        # Le box score liste d'abord l'équipe à l'extérieur : on associe chaque
+        # équipe à son côté via les competitors (homeAway) de l'en-tête.
+        header_competitors = (data.get("header", {}).get("competitions") or [{}])[0].get("competitors", [])
+        side_by_team = {
+            str(c.get("team", {}).get("id")): c.get("homeAway") for c in header_competitors
+        }
+        home_players = next(
+            (p for p in players if side_by_team.get(str(p.get("team", {}).get("id"))) == "home"),
+            players[1],
+        )
+        away_players = next(
+            (p for p in players if side_by_team.get(str(p.get("team", {}).get("id"))) == "away"),
+            players[0],
+        )
+        home_stats = _parse_team_player_stats(home_players)
+        away_stats = _parse_team_player_stats(away_players)
         
         player_stats = {
             "home_players": home_stats,
@@ -554,10 +587,8 @@ def _get_details(details):
 
 def _parse_date(hass, date_str, show_time=True):
     try:
-        user_timezone = hass.config.time_zone
-        parsed_date = parser.isoparse(date_str).replace(tzinfo=timezone.utc)
-        local_tz = ZoneInfo(user_timezone)
-        local_date = parsed_date.astimezone(local_tz)
+        # Fuseau de HA (hass.config.time_zone), sans I/O bloquante
+        local_date = dt_util.as_local(_parse_iso_utc(date_str))
 
         if show_time:
             return local_date.strftime("%d/%m/%Y %H:%M")

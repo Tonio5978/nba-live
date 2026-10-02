@@ -1,5 +1,16 @@
 from .const import _LOGGER
-from dateutil import parser
+
+
+def _sort_key(values):
+    """Clé de tri : playoffSeed croissant, puis % de victoires décroissant."""
+    def number(name, default):
+        try:
+            return float(values.get(name))
+        except (TypeError, ValueError):
+            return default
+
+    return (number("playoffSeed", float("inf")), -number("winPercent", 0.0))
+
 
 def classifica_data(data, conference=None):
     try:
@@ -18,6 +29,8 @@ def classifica_data(data, conference=None):
             for index, entry in enumerate(entries, start=1):
                 team = entry.get("team", {})
                 stats = {s["name"]: s["displayValue"] for s in entry.get("stats", [])}
+                # Valeurs numériques, pour le tri (displayValue vaut ".667" ou "1.000")
+                values = {s["name"]: s.get("value") for s in entry.get("stats", [])}
 
                 team_data = {
                     "rank": index,
@@ -38,9 +51,10 @@ def classifica_data(data, conference=None):
                     "playoff_seed": stats.get("playoffSeed", "N/A"),
                     "clincher": stats.get("clincher", ""),
                 }
-                standings.append(team_data)
+                standings.append((_sort_key(values), team_data))
 
-            standings.sort(key=lambda t: float(t["win_pct"].lstrip(".") or 0) if t["win_pct"] not in ("N/A", "") else 0, reverse=True)
+            # Tri sur le rang officiel ESPN (départages inclus), puis sur le % de victoires
+            standings = [team_data for _, team_data in sorted(standings, key=lambda item: item[0])]
             for i, t in enumerate(standings, start=1):
                 t["rank"] = i
 

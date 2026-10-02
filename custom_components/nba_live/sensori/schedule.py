@@ -1,6 +1,5 @@
 from .const import _LOGGER
-from .scoreboard import _get_leaders, _parse_date, _get_player_stats, _get_linescores
-from dateutil import parser
+from .scoreboard import _get_leaders, _parse_date, _get_player_stats, _get_linescores, _parse_iso_utc
 from datetime import datetime, timezone
 
 
@@ -23,7 +22,7 @@ async def process_nba_team_schedule(data, hass, start_date=None, end_date=None):
             match_id = event.get("id", "")
 
             try:
-                match_date = parser.isoparse(match_date_str).astimezone(timezone.utc) if match_date_str else None
+                match_date = _parse_iso_utc(match_date_str) if match_date_str else None
             except ValueError:
                 continue
 
